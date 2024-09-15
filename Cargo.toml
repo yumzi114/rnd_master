@@ -1,6 +1,6 @@
 [workspace]
-members = [ ] 
-default-members = []
+members = ["master_bin" , "masterapi"] 
+default-members = ["master_bin"]
 resolver = "2"
 [workspace.package]
 version = "0.0.0"
