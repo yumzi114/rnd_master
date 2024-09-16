@@ -25,6 +25,7 @@ console-subscriber = "0.1.5"
 rppal = "0.19.0"
 ads1x1x = "0.2"
 linux-embedded-hal = "0.3"
-
+tracing = "0.1"
+tracing-subscriber = "0.3"
 nb = "1.1.0"
 embedded-hal = "1"
