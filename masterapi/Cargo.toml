@@ -7,3 +7,5 @@ readme.workspace = true
 license.workspace = true
 
 [dependencies]
+bytes = "1.7.1"
+tokio-util = "0.7.12"

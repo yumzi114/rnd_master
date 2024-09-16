@@ -1,5 +1,5 @@
 [workspace]
-members = ["master_bin" , "masterapi"] 
+members = [ "master_bin","masterapi"] 
 default-members = ["master_bin"]
 resolver = "2"
 [workspace.package]

@@ -7,3 +7,24 @@ readme.workspace = true
 license.workspace = true
 
 [dependencies]
+tokio-util = { version = "0.7.11", features = ["codec"] }
+mini-redis = "0.4"
+futures-channel = "0.3.30"
+
+masterapi={path = "../masterapi"}
+tokio-serial = "5.4.4"
+futures = "0.3.30"
+bytes = "1.7.1"
+serde-hex = "0.1.0"
+serde = { version = "1.0.210", features = ["derive"] }
+serde_derive = "1.0.210"
+defaults = "0.2.0"
+hex = "0.4.3"
+tokio = { version = "1", features = ["full", "tracing"] }
+console-subscriber = "0.1.5"
+rppal = "0.19.0"
+ads1x1x = "0.2"
+linux-embedded-hal = "0.3"
+
+nb = "1.1.0"
+embedded-hal = "1"
