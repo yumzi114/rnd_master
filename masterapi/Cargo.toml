@@ -9,3 +9,10 @@ license.workspace = true
 [dependencies]
 bytes = "1.7.1"
 tokio-util = "0.7.12"
+defaults = "0.2.0"
+serde_derive = "1.0.210"
+serde = { version = "1.0.210", features = ["derive"] }
+serde-hex = "0.1.0"
+serde_with = { version = "3.9.0", features = ["hex"] }
+confy = "0.6.1"
+hex = "0.4.3"
