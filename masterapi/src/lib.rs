@@ -19,7 +19,7 @@ const DEFAULT_TTY: &str = "COM1";
 pub struct LineCodec;
 
 impl Decoder for LineCodec {
-    type Item = Vec<u8>;
+    type Item = Packet;
     type Error = io::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -28,11 +28,13 @@ impl Decoder for LineCodec {
         if let Some(n) = start {
             let line = src.split_to(n+1);
             let line_list = line.to_vec();
-            if line_list.len()==6&&line_list[0]==0xAF&&line_list[1]==3{
-                // if line_list[3]==00{
-                //     return Err(Error::other("Device S/N Error"));
-                // }
-                return Ok(Some(line_list));
+            if line_list.len()==15&&line_list[0]==0xAF&&line_list[1]==12{
+                let mut packet = Packet::default();
+                if let Ok(_)=packet.parser(line_list){
+                    if let Ok(_)=packet.is_checksum(){
+                        return Ok(Some(packet));
+                    }
+                }
             }
             else {
                 return Ok(None)
@@ -72,6 +74,7 @@ impl Encoder<Packet> for LineCodec {
         buf.put_u8(item.length);
         buf.put_u16(item.reserved);
         buf.put_u8(item.command);
+        buf.put_u8(item.remote);
         buf.put_i16(item.pannel_up);
         buf.put_i16(item.pannel_down);
         buf.put_i16(item.overload);
@@ -90,12 +93,14 @@ impl Encoder<Packet> for LineCodec {
 pub struct Packet {
     #[def = "0xAF"]
     start: u8,
-    #[def = "0x0B"]
+    #[def = "0x0C"]
     length: u8,
     #[def = "0x0000"]
     reserved: u16,
     #[def = "0x00"]
     pub command: u8,
+    #[def = "0x00"]
+    pub remote: u8,
     #[def = "0x0000"]
     pub pannel_up: i16,
     #[def = "0x0000"]
@@ -116,10 +121,31 @@ impl Packet{
     pub fn load (&self, file_name : &str){
 
     }
+    pub fn parser(&mut self, buf:Vec<u8>)->Result<(),io::Error>{
+        if buf.len()==15{
+            self.start = buf[0];
+            self.length = u8::from_be_bytes([buf[1]]);
+            self.reserved = u16::from_be_bytes([buf[2],buf[3]]);
+            self.command = u8::from_be_bytes([buf[4]]);
+            self.remote = u8::from_be_bytes([buf[5]]);
+            self.pannel_up = i16::from_be_bytes([buf[6],buf[7]]);
+            self.pannel_down = i16::from_be_bytes([buf[8],buf[9]]);
+            self.overload = i16::from_be_bytes([buf[10],buf[11]]);
+            self.sensor_state = u8::from_be_bytes([buf[12]]);
+            self.checksum = u8::from_be_bytes([buf[13]]);
+            self.end = u8::from_be_bytes([buf[14]]);
+
+            return Ok(())    
+        }
+        else{
+            return Err(io::Error::new(ErrorKind::Other, "Fail Check buf"));
+        }
+    }
     pub fn add_checksum (&mut self)->Result<(),String>{
         let mut sumdata:u128=0;
         self.reserved.to_be_bytes().map(|x|sumdata+=u128::from(x));
         self.command.to_be_bytes().map(|x|sumdata+=u128::from(x));
+        self.remote.to_be_bytes().map(|x|sumdata+=u128::from(x));
         self.pannel_up.to_be_bytes().map(|x|sumdata+=u128::from(x));
         self.pannel_down.to_be_bytes().map(|x|sumdata+=u128::from(x));
         self.overload.to_be_bytes().map(|x|sumdata+=u128::from(x));
@@ -141,6 +167,7 @@ impl Packet{
         let mut sumdata:u128=0;
         self.reserved.to_be_bytes().map(|x|sumdata+=u128::from(x));
         self.command.to_be_bytes().map(|x|sumdata+=u128::from(x));
+        self.remote.to_be_bytes().map(|x|sumdata+=u128::from(x));
         self.pannel_up.to_be_bytes().map(|x|sumdata+=u128::from(x));
         self.pannel_down.to_be_bytes().map(|x|sumdata+=u128::from(x));
         self.overload.to_be_bytes().map(|x|sumdata+=u128::from(x));
