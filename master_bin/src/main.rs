@@ -19,7 +19,7 @@ use linux_embedded_hal::I2cdev;
 use ads1x1x::{channel, Ads1x1x, ChannelSelection, ComparatorLatching, ComparatorMode, ComparatorPolarity, ComparatorQueue, DataRate16Bit, DynamicOneShot, FullScaleRange, ModeChangeError, SlaveAddr};
 use serde_derive::{Serialize, Deserialize};
 use rppal::gpio::Gpio;
-
+use crossbeam_channel::unbounded;
 
 extern crate embedded_hal;
 
@@ -48,6 +48,8 @@ async fn main() -> Result<()> {
     let moto_dir = Arc::new(Mutex::new(moto_dir_pin));
     let mut sign:Option<SIGN> = None;
     let app_sign = Arc::new(Mutex::new(sign));
+    // 신호 채널
+    let (s, r) = unbounded();
     //=============패킷 기본설정=============
     let mut app_report = Packet::default();
     app_report.command = 0x03;
@@ -135,15 +137,8 @@ async fn main() -> Result<()> {
                                         if moto_dir_mem.lock().unwrap().is_set_high(){
                                             moto_dir_mem.lock().unwrap().set_low();
                                         }
-                                        
-                                        //테스트 구동시
-                                        // if moto_run_mem.lock().unwrap().is_set_high(){
-                                        //     moto_run_mem.lock().unwrap().set_low()
-                                        // }
-                                        // else {
-                                        //     moto_run_mem.lock().unwrap().set_high()
-                                        // }
-                                        thread::sleep(Duration::from_millis(2000));
+                                        //센서 무시시간
+                                        thread::sleep(Duration::from_millis(1500));
                                         *app_sign_mem.lock().unwrap() =None;
                                         flag=0;
                                     }
@@ -155,13 +150,8 @@ async fn main() -> Result<()> {
                                         if !moto_run_mem.lock().unwrap().is_set_high(){
                                             moto_run_mem.lock().unwrap().set_high();
                                         }
-                                        //테스트 구동시
-                                        // if moto_dir_mem.lock().unwrap().is_set_high(){
-                                        //     moto_dir_mem.lock().unwrap().set_low()
-                                        // }else{
-                                        //     moto_dir_mem.lock().unwrap().set_high()
-                                        // }
-                                        thread::sleep(Duration::from_millis(2000));
+                                        //센서 무시시간
+                                        thread::sleep(Duration::from_millis(1500));
                                         *app_sign_mem.lock().unwrap() =None;
                                         flag=0;
                                         
@@ -199,13 +189,14 @@ async fn main() -> Result<()> {
 
                 let senser1 = block!(arc_mem.lock().unwrap().read(ChannelSelection::SingleA1)).unwrap();
                 if senser1 != report_mem.lock().unwrap().pannel_up{
-                    report_mem.lock().unwrap().pannel_up = senser1;
+                    report_mem.lock().unwrap()                            // thread::sleep(Duration::from_millis(1000));
+                    .pannel_up = senser1;
                     report_mem.lock().unwrap().save("Report");
                 }
                 match senser1 {
                     -32768..500=>{
                         let mut list = vec![];
-                        for i in 0..10{
+                        for i in 0..5{
                             thread::sleep(Duration::from_millis(1));
                             list.push(
                                 block!(arc_mem.lock().unwrap().read(ChannelSelection::SingleA1)).unwrap()
@@ -213,22 +204,14 @@ async fn main() -> Result<()> {
                         }
                         let all_check = list.iter().all(|&x|x < 500);
                         if all_check {
-                            // if *senser_mem.lock().unwrap(){
-                                
-                            //    *senser_mem.lock().unwrap()=false;
-                            //    let mut state = report_mem.lock().unwrap().sensor_state;
-                            //     state &= 0b1111_1110;
-                            //     report_mem.lock().unwrap().sensor_state = state;
-                            //    report_mem.lock().unwrap().save("Report");
-                            // }
                             *senser_mem.lock().unwrap()=false;
                             let mut state = report_mem.lock().unwrap().sensor_state;
                             state &= 0b1111_1110;
                             report_mem.lock().unwrap().sensor_state = state;
                             report_mem.lock().unwrap().save("Report");
-                            // info!("READ [SENSER1]: DOWN");
+                            s.send(false).unwrap();
                             list.clear();
-                            thread::sleep(Duration::from_millis(1000));
+                            continue;
                         }
                         else {
                             
@@ -239,7 +222,7 @@ async fn main() -> Result<()> {
                     },
                     _=>{
                         let mut list = vec![];
-                        for i in 0..10{
+                        for i in 0..5{
                             thread::sleep(Duration::from_millis(1));
                             list.push(
                                 block!(arc_mem.lock().unwrap().read(ChannelSelection::SingleA1)).unwrap()
@@ -247,21 +230,13 @@ async fn main() -> Result<()> {
                         }
                         let all_check = list.iter().all(|&x|x > 500);
                         if all_check {
-                            // if !*senser_mem.lock().unwrap(){
-                            //     *senser_mem.lock().unwrap()=true;
-                            //     let mut state = report_mem.lock().unwrap().sensor_state;
-                            //     state |= 0b0000_0001;
-                            //     report_mem.lock().unwrap().sensor_state = state;
-                            //    report_mem.lock().unwrap().save("Report");
-                            // }
                             *senser_mem.lock().unwrap()=true;
                             let mut state = report_mem.lock().unwrap().sensor_state;
                             state |= 0b0000_0001;
                             report_mem.lock().unwrap().sensor_state = state;
                             report_mem.lock().unwrap().save("Report");
-                            // info!("READ [SENSER1]: DOWN");
                             list.clear();
-                            thread::sleep(Duration::from_millis(1000));
+                            continue;
                         }
                         else {
                             list.clear();
@@ -275,108 +250,91 @@ async fn main() -> Result<()> {
         // #[cfg(unix)]
         
     });
-    //=============센서2 측정=============
-    let arc_mem = arc_adc.clone();
-    let senser_mem = senser2_state.clone();
-    let report_mem = report.clone();
-    thread::spawn(move||{
-        let rt  = Runtime::new().unwrap();
-        rt.block_on(async {
-            loop{
-                let senser2 = block!(arc_mem.lock().unwrap().read(ChannelSelection::SingleA2)).unwrap();
-                if senser2 != report_mem.lock().unwrap().pannel_down{
-                    report_mem.lock().unwrap().pannel_down = senser2;
-                    report_mem.lock().unwrap().save("Report");
-                }
-                match senser2 {
-                    -32768..500=>{
-                        let mut list = vec![];
-                        for i in 0..10{
-                            thread::sleep(Duration::from_millis(1));
-                            list.push(
-                                block!(arc_mem.lock().unwrap().read(ChannelSelection::SingleA2)).unwrap()
-                            );
-                        }
-                        let all_check = list.iter().all(|&x|x < 500);
-                        if all_check {
-                            // if *senser_mem.lock().unwrap(){
-                            // //    *senser_mem.lock().unwrap()=true;
-                            //   app_sign_mem *senser_mem.lock().unwrap()=false;
-                            //    let mut state = report_mem.lock().unwrap().sensor_state;
-                            //     state &= 0b1111_1101;
-                            //     report_mem.lock().unwrap().sensor_state = state;
-                            //    report_mem.lock().unwrap().save("Report");
-                            // }
-                            *senser_mem.lock().unwrap()=false;
-                            let mut state = report_mem.lock().unwrap().sensor_state;
-                            state &= 0b1111_1101;
-                            report_mem.lock().unwrap().sensor_state = state;
-                            report_mem.lock().unwrap().save("Report");
-                            // info!("READ [SENSER2]: DOWN");
-                            list.clear();
-                            thread::sleep(Duration::from_millis(1000));
-                        }
-                        else {
-                            list.clear();
-                            continue;
-                        }
+    // //=============센서2 측정=============
+    // let arc_mem = arc_adc.clone();
+    // let senser_mem = senser2_state.clone();
+    // let report_mem = report.clone();
+    // thread::spawn(move||{app_sign_mem
+    //     let rt  = Runtime::new().unwrap();
+    //     rt.block_on(async {
+    //         loop{
+    //             let senser2 = block!(arc_mem.lock().unwrap().read(ChannelSelection::SingleA2)).unwrap();
+    //             if senser2 != report_mem.lock().unwrap().pannel_down{
+    //                 report_mem.lock().unwrap().pannel_down = senser2;
+    //                 report_mem.lock().unwrap().save("Report");
+    //             }
+    //             match senser2 {
+    //                 -32768..500=>{
+    //                     let mut list = vec![];
+    //                     for i in 0..15{
+    //                         thread::sleep(Duration::from_millis(1));
+    //                         list.push(
+    //                             block!(arc_mem.lock().unwrap().read(ChannelSelection::SingleA2)).unwrap()
+    //                         );
+    //                     }
+    //                     let all_check = list.iter().all(|&x|x < 500);
+    //                     if all_check {
+    //                         *senser_mem.lock().unwrap()=false;
+    //                         let mut state = report_mem.lock().unwrap().sensor_state;
+    //                         state &= 0b1111_1101;
+    //                         report_mem.lock().unwrap().sensor_state = state;
+    //                         report_mem.lock().unwrap().save("Report");
+    //                         list.clear();
+    //                         continue;
+    //                     }
+    //                     else {
+    //                         list.clear();
+    //                         continue;
+    //                     }
                         
-                    },
-                    _=>{
-                        let mut list = vec![];
-                        for i in 0..10{
-                            thread::sleep(Duration::from_millis(1));
-                            list.push(
-                                block!(arc_mem.lock().unwrap().read(ChannelSelection::SingleA2)).unwrap()
-                            );
-                        }
-                        let all_check = list.iter().all(|&x|x > 500);
-                        if all_check {
-                            // if !*senser_mem.lock().unwrap(){
-                            //    *senser_mem.lock().unwrap()=true;
-                            //    let mut state = report_mem.lock().unwrap().sensor_state;
-                            //     state |= 0b0000_0010;
-                            //     report_mem.lock().unwrap().sensor_state = state;
-                            //     report_mem.lock().unwrap().save("Report");
-                            // }
-                            *senser_mem.lock().unwrap()=true;
-                            let mut state = report_mem.lock().unwrap().sensor_state;
-                            state |= 0b0000_0010;
-                            report_mem.lock().unwrap().sensor_state = state;
-                            report_mem.lock().unwrap().save("Report");
-                            // info!("READ [SENSER2]: DOWN");
-                            list.clear();
-                            thread::sleep(Duration::from_millis(1000));
-                        }
-                        else {
-                            list.clear();
-                            continue;
-                        }
-                    }
-                }
-                thread::sleep(Duration::from_millis(1));
-            }
-        });
-        // #[cfg(unix)]
+    //                 },
+    //                 _=>{
+    //                     let mut list = vec![];
+    //                     for i in 0..15{
+    //                         thread::sleep(Duration::from_millis(1));app_sign_mem
+    //                         list.push(
+    //                             block!(arc_mem.lock().unwrap().read(ChannelSelection::SingleA2)).unwrap()
+    //                         );
+    //                     }
+    //                     let all_check = list.iter().all(|&x|x > 500);
+    //                     if all_check {
+    //                         *senser_mem.lock().unwrap()=true;
+    //                         let mut state = report_mem.lock().unwrap().sensor_state;
+    //                         state |= 0b0000_0010;
+    //                         report_mem.lock().unwrap().sensor_state = state;
+    //                         report_mem.lock().unwrap().save("Report");
+    //                         list.clear();
+    //                         continue;
+    //                     }
+    //                     else {
+    //                         list.clear();
+    //                         continue;
+    //                     }
+    //                 }
+    //             }
+    //             thread::sleep(Duration::from_millis(1));
+    //         }
+    //     });
+    //     // #[cfg(unix)]
         
-    });
-    //=============모터부하 센서 측정=============
-    let arc_mem = arc_adc.clone();
-    let report_mem = report.clone();
-    thread::spawn(move||{
-        let rt  = Runtime::new().unwrap();
-        rt.block_on(async {
-            loop{
-                let sensor = block!(arc_mem.lock().unwrap().read(ChannelSelection::SingleA0)).unwrap();
-                if report_mem.lock().unwrap().overload!=sensor{
-                    report_mem.lock().unwrap().overload = sensor;
-                    report_mem.lock().unwrap().save("Report");
-                }
-                thread::sleep(Duration::from_millis(50));
-            }
-        });
+    // });
+    // //=============모터부하 센서 측정=============
+    // let arc_mem = arc_adc.clone();
+    // let report_mem = report.clone();
+    // thread::spawn(move||{
+    //     let rt  = Runtime::new().unwrap();
+    //     rt.block_on(async {
+    //         loop{
+    //             let sensor = block!(arc_mem.lock().unwrap().read(ChannelSelection::SingleA0)).unwrap();
+    //             if report_mem.lock().unwrap().overload!=sensor{
+    //                 report_mem.lock().unwrap().overload = sensor;
+    //                 report_mem.lock().unwrap().save("Report");
+    //             }
+    //             thread::sleep(Duration::from_millis(50));
+    //         }
+    //     });
         
-    });
+    // });
 
     //=============센서인식, 모터동작 제어스레드===========1==
     let senser1_mem = senser1_state.clone();
@@ -389,28 +347,21 @@ async fn main() -> Result<()> {
         rt.block_on(async {
             loop{
                 if *senser1_mem.lock().unwrap() || *senser2_mem.lock().unwrap(){
-                    
+                    // println!("TEST");
                     if let None=*app_sign_mem.lock().unwrap(){
                         if moto_run_mem.lock().unwrap().is_set_high(){
+                            // println!("LOW");
                             moto_run_mem.lock().unwrap().set_low();
                         }
                         if moto_dir_mem.lock().unwrap().is_set_high(){
+                            // println!("HI");
                             moto_dir_mem.lock().unwrap().set_low();    
                         }
                     }
-                    // match *app_sign_mem.lock().unwrap() {
-                    //     Some(SIGN::GREEN) =>{},
-                    //     Some(SIGN::GREEN)=>{},
-                    //     None=>{
-                    //         moto_run_mem.lock().unwrap().set_low();
-                    //         moto_dir_mem.lock().unwrap().set_low();
-                    //         info!("{:?}",*app_sign_mem.lock().unwrap());
-                    //     }
-                    // }
                     
                 }
 
-                thread::sleep(Duration::from_millis(50));
+                thread::sleep(Duration::from_millis(1));
             }
         });
         
@@ -418,13 +369,43 @@ async fn main() -> Result<()> {
 
 
     let arc_mem = arc_adc.clone();
+    let moto_run_mem = moto_run.clone();
+    let moto_dir_mem = moto_dir.clone();
     loop
-    {
-        // let test = block!(arc_mem.lock().unwrap().read(ChannelSelection::SingleA0)).unwrap();
-        // info!("LEVEL SENSER : {:?}",test);
+    {   
+        // if let Ok(data)=r.try_recv(){
+        //     match data{
+        //         true =>{
+        //             if !moto_run_mem.lock().unwrap().is_set_high(){
+        //                 moto_run_mem.lock().unwrap().set_high();
 
-        // info!("SENSER_1 STATE : {:?}",senser1_state.lock().unwrap());
-        // info!("SENSER_2 STATE : {:?}",senser2_state.lock().unwrap());
+        //             }
+        //             if moto_dir_mem.lock().unwrap().is_set_high(){
+        //                 moto_dir_mem.lock().unwrap().set_low();
+        //             }
+        //         }
+        //         false =>{
+        //             if !moto_dir_mem.lock().unwrap().is_set_high(){
+        //                 moto_dir_mem.lock().unwrap().set_high();
+        //             }
+        //             if !moto_run_mem.lock().unwrap().is_set_high(){
+        //                 moto_run_mem.lock().unwrap().set_high();
+        //             }
+        //         }
+        //     }
+            
+            
+            // if let None=*app_sign_mem.lock().unwrap(){
+            //     if moto_run_mem.lock().unwrap().is_set_high(){
+            //         println!("LOW");
+            //         moto_run_mem.lock().unwrap().set_low();
+            //     }
+            //     if moto_dir_mem.lock().unwrap().is_set_high(){
+            //         println!("HI");
+            //         moto_dir_mem.lock().unwrap().set_low();    
+            //     }
+            // }
+        // }
         thread::sleep(Duration::from_millis(50));
     }
     Ok(())
